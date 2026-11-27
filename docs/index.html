@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fnloom Guide</title>
+<meta name="description" content="Install fnloom, start it, sign in, put it on your phone, add systems, and the first things to do with it.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../img/mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../css/site.css">
+<script>try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;}catch(e){}document.documentElement.classList.add('js');</script>
+</head>
+<body class="guide">
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top" data-top>
+  <div class="wrap top-in">
+    <a class="brand" href="../" aria-label="fnloom, home">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="5.5"/><path d="M16 2.5v8M16 21.5v8M2.5 16h8M21.5 16h8" /><circle cx="16" cy="2.5" r="2"/><circle cx="16" cy="29.5" r="2"/><circle cx="2.5" cy="16" r="2"/><circle cx="29.5" cy="16" r="2"/></svg>
+      <span>fnloom <span class="brand-sub">Guide</span></span>
+    </a>
+    <nav aria-label="Sections">
+      <ul>
+        <li><a href="#install-guide">Install</a></li>
+        <li><a href="#premade-systems">Systems</a></li>
+        <li><a href="#first-steps">First steps</a></li>
+        <li><a href="https://github.com/ClickerMonkey/fnloom">GitHub</a></li>
+        <li><a href="../">About fnloom</a></li>
+      </ul>
+    </nav>
+    <button class="theme" type="button" aria-label="Switch to dark theme" data-theme-toggle>
+      <svg viewBox="0 0 24 24" aria-hidden="true" class="i-moon"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
+      <svg viewBox="0 0 24 24" aria-hidden="true" class="i-sun"><circle cx="12" cy="12" r="4.5"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3M4.6 4.6l2.1 2.1M17.3 17.3l2.1 2.1M4.6 19.4l2.1-2.1M17.3 6.7l2.1-2.1"/></svg>
+    </button>
+  </div>
+</header>
+
+<main id="main">
+<div class="wrap narrow prose">
+  <p class="kicker">The guide</p>
+  <nav class="toc" aria-label="On this page">
+<p><b>Installing</b></p><ul><li><a href="#what-you-need">What you need</a></li><li><a href="#install">Install</a></li><li><a href="#start-it">Start it</a></li><li><a href="#use-it-on-your-phone">Use it on your phone</a></li><li><a href="#premade-systems">Premade systems</a></li><li><a href="#updating-and-removing">Updating and removing</a></li></ul><p><b>First steps</b></p><ul><li><a href="#connect-a-model">Connect a model</a></li><li><a href="#chat">Chat</a></li><li><a href="#give-it-more-to-work-with">Give it more to work with</a></li><li><a href="#let-it-build-fns-and-systems">Let it build fns and systems</a></li><li><a href="#add-people-and-set-limits">Add people and set limits</a></li><li><a href="#use-it-on-your-phone-2">Use it on your phone</a></li></ul>
+  </nav>
+  <article id="install-guide">
+<h1>fnloom: installing and running it</h1>
+<p>fnloom is a web-based agent harness: one <strong>hub</strong> that owns every model call, person, permission and record, and
+<strong>systems</strong> that connect to it to add fns, types, resources and screens. It runs on your own computer; you
+use it from a browser on that computer, or from a phone or another computer on the same network.</p>
+<p>This page covers installing it from npm, starting it, signing in and installing the premade systems. For working on
+the harness itself (from a clone of the repository), see the README in the <a href="https://github.com/ClickerMonkey/fnloom" rel="noopener">repository</a>.</p>
+<h3 id="what-you-need">What you need</h3>
+<ul>
+<li><strong>Node.js 22.21 or later</strong> (with npm; installed systems reach the network through the hub&#39;s proxy, which needs 22.21). Check with <code>node -v</code>.</li>
+<li><strong>A model provider.</strong> An <a href="https://openrouter.ai" rel="noopener">OpenRouter</a> key is the quickest (<code>OPENROUTER_API_KEY</code>); AWS
+Bedrock and a local <a href="https://ollama.com" rel="noopener">Ollama</a> work too. You can also add one after the first start.</li>
+</ul>
+<h3 id="install">Install</h3>
+<pre><code class="language-sh">npm install -g fnloom
+</code></pre>
+<p>This puts the <code>fnloom</code> command on your PATH. To keep it inside one folder instead, run
+<code>npm install fnloom</code> there and use <code>npx fnloom …</code> in place of <code>fnloom …</code>.</p>
+<p>The package carries the hub, the app, the command line and the lightweight premade systems. The heavier systems
+(database, web, claude) come as small packages inside it whose own dependencies (the SQLite driver built for your
+machine, puppeteer and the Chrome it downloads, the Claude Agent SDK) are fetched only when you install that system (see
+<a href="#premade-systems">Premade systems</a>).</p>
+<h3 id="start-it">Start it</h3>
+<p>Open a terminal in the folder you want the agent to work with (the <strong>fs</strong> system serves that folder&#39;s files to it),
+then:</p>
+<pre><code class="language-sh">fnloom start
+</code></pre>
+<p>It starts the hub, the app and the lightweight premade systems (fs, input, code, schedule and api). On the first
+start it makes the admin account and prints everything you need:</p>
+<pre><code class="language-text">The harness is running.
+  Open:      http://127.0.0.1:4300
+  Or:        http://192.168.1.20:4300   (a phone on this network: https://192.168.1.20:4300, see Settings &gt; App)
+  Sign in:   admin@harness.local
+  Password:  Zq3…   (saved in /home/you/.harness/admin.json)
+  fs serves: /home/you/projects
+</code></pre>
+<p>Open the address, sign in with that email and password, and add a model provider under <strong>Admin › Models › Add provider</strong> (or
+set <code>OPENROUTER_API_KEY</code> before the first start, and the hub configures OpenRouter itself). Ctrl+C stops everything;
+<code>fnloom start</code> again picks up where it left off.</p>
+<p><strong>The systems are live.</strong> A system that connects for the first time is normally <em>installed, not live</em>: nothing it
+offers reaches the chat until an admin has looked at what it adds (Admin › Systems › Review and go live). The premade
+systems <code>fnloom start</code> runs, and the ones you install by name with <code>fnloom system install &lt;name&gt;</code>, are put live for
+you, since you just asked for them. Systems from anywhere else (a folder, a zip, npm, or one the chat wrote) still wait
+for your review.</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Setting</th>
+<th>Default</th>
+<th>What it is</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>--port &lt;n&gt;</code></td>
+<td><code>HARNESS_PORT</code></td>
+<td>4300</td>
+<td>the hub and the web app it serves (http and https on the same port)</td>
+</tr>
+<tr>
+<td><code>--data &lt;dir&gt;</code></td>
+<td><code>HARNESS_DATA</code></td>
+<td><code>~/.harness</code></td>
+<td>the database, files, keys, logs and installed systems</td>
+</tr>
+<tr>
+<td><code>--root &lt;dir&gt;</code></td>
+<td><code>HARNESS_DEV_ROOT</code></td>
+<td>the folder you start in</td>
+<td>the folder the fs system serves</td>
+</tr>
+<tr>
+<td><code>--systems &lt;list&gt;</code></td>
+<td><code>HARNESS_DEV_ONLY</code></td>
+<td>see below</td>
+<td>what to run: <code>hub</code> plus lightweight system names (<code>fs</code>, <code>input</code>, <code>code</code>, <code>schedule</code>, <code>api</code>, <code>widgets</code>, <code>calendar</code>, <code>embedder</code>); <code>--systems hub</code> runs no systems. The heavy ones (database, web, claude) are installed instead, and then start with the hub</td>
+</tr>
+<tr>
+<td></td>
+<td><code>HARNESS_ADMIN_EMAIL</code>, <code>HARNESS_ADMIN_PASSWORD</code></td>
+<td>made on the first start</td>
+<td>your own admin account instead of the generated one (set before the first start)</td>
+</tr>
+<tr>
+<td></td>
+<td><code>OPENROUTER_API_KEY</code></td>
+<td>none</td>
+<td>configures the OpenRouter provider on the first start</td>
+</tr>
+<tr>
+<td></td>
+<td><code>HARNESS_DEFAULT_MODEL</code></td>
+<td><code>openrouter/auto</code></td>
+<td>the chat agent&#39;s model until an admin picks one</td>
+</tr>
+</tbody></table></div>
+<p>Settings can be in the environment or in a <code>.env</code> file in the folder you start in. Every other hub setting is listed
+in <code>.env.example</code> in the repository.</p>
+<p><code>admin.json</code> in the data folder is readable only by you; it is how <code>fnloom system install</code> and the other hub
+commands sign in to the hub <code>fnloom start</code> runs, without being told how. Keep it private, as you would the data
+folder itself.</p>
+<h3 id="use-it-on-your-phone">Use it on your phone</h3>
+<p>The hub listens on every network address of the computer, and answers https on the same port with a certificate from
+its own small certificate authority. To install the app on a phone (and get notifications), open <strong>Settings › App ›
+Use it on your phone</strong> on the computer: it shows a QR code to download that authority, the steps to trust it on
+iPhone or Android, and a QR code for the hub&#39;s https address. After that, open the address on the phone and choose
+<strong>Install app</strong> (Android) or <strong>Share › Add to Home Screen</strong> (iPhone). A real certificate (Tailscale, mkcert, a reverse
+proxy) works too: see &quot;Installing the app, and HTTPS&quot; in <a href="https://github.com/ClickerMonkey/fnloom/blob/main/docs/harness.md" rel="noopener"><code>docs/harness.md</code></a>.</p>
+<h3 id="premade-systems">Premade systems</h3>
+<p>The harness comes with these systems. <code>fnloom start</code> runs the lightweight ones in the first group (they need
+nothing beyond what the hub already has); install the others when you want them. The heavy ones (database, web and
+claude) fetch their own dependencies when you install them, into that system&#39;s folder in the data folder, so a
+machine that never installs web never downloads puppeteer&#39;s Chrome. <code>fnloom system available</code> prints the same list.</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th>System</th>
+<th>Started by <code>fnloom start</code></th>
+<th>What it adds</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>fs</code></td>
+<td>always</td>
+<td>files and folders as resources; read, write, search, and shell commands with approval</td>
+</tr>
+<tr>
+<td><code>input</code></td>
+<td>always</td>
+<td>forms the agent asks you to fill in</td>
+</tr>
+<tr>
+<td><code>code</code></td>
+<td>always</td>
+<td>fns written as small programs that call other fns</td>
+</tr>
+<tr>
+<td><code>schedule</code></td>
+<td>always</td>
+<td>fns that run on a schedule (every day at 9, once next Friday)</td>
+</tr>
+<tr>
+<td><code>api</code></td>
+<td>always</td>
+<td>fns that call web APIs, written from a service&#39;s OpenAPI document</td>
+</tr>
+<tr>
+<td><code>google-calendar</code></td>
+<td>when <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> are set</td>
+<td>each person&#39;s own Google Calendar</td>
+</tr>
+<tr>
+<td><code>embedder</code></td>
+<td>when <code>HARNESS_EMBEDDER_URL</code> is set</td>
+<td>embeddings from an EmbeddingGemma service, for search and suggestions</td>
+</tr>
+<tr>
+<td><code>database</code></td>
+<td>no: install it (brings <code>widgets</code>; fetches the SQLite driver built for your machine)</td>
+<td>SQL databases (SQLite, Postgres, SQL Server): tables as types, kept queries as fns</td>
+</tr>
+<tr>
+<td><code>widgets</code></td>
+<td>no: comes with <code>database</code></td>
+<td>charts and tables drawn from database queries, saved as widgets</td>
+</tr>
+<tr>
+<td><code>web</code></td>
+<td>no: install it (fetches puppeteer and its Chrome)</td>
+<td>web search (<a href="https://tavily.com" rel="noopener">Tavily</a>), page reading and site crawls</td>
+</tr>
+<tr>
+<td><code>claude</code></td>
+<td>no: install it (fetches the Claude Agent SDK)</td>
+<td>Claude Code sessions on this machine, managed from the harness</td>
+</tr>
+<tr>
+<td><code>mcp</code></td>
+<td>no: add servers in the app</td>
+<td>MCP servers&#39; tools as fns, prompts as commands</td>
+</tr>
+<tr>
+<td><code>ollama</code></td>
+<td>no: install it</td>
+<td>runs (or talks to) Ollama and offers its models</td>
+</tr>
+</tbody></table></div>
+<h4 id="installing-one">Installing one</h4>
+<p>With <code>fnloom start</code> running, in another terminal:</p>
+<pre><code class="language-sh">fnloom system install &lt;name&gt; [--config &lt;file.json&gt;]
+</code></pre>
+<p><code>&lt;name&gt;</code> is a premade system&#39;s name from the table. The hub installs it from the copy that came with the harness
+(for database, web and claude it also runs <code>npm install</code> of their own dependencies into the system&#39;s folder, which
+takes a minute), pairs it, gives it the config, starts it, and starts it again every time the hub starts. The command waits until it
+has connected and says so. If the hub runs on another port or keeps its data somewhere else, say so:
+<code>--hub http://127.0.0.1:4620</code> and <code>HARNESS_DATA=&lt;the data folder&gt;</code> (that is where it finds <code>admin.json</code>). It then
+puts the system live and says so.</p>
+<p>A system that needs config and was installed without it connects and waits: fill its config on its page in the app
+(<strong>Admin › Systems › &lt;name&gt;</strong>) instead. Manage installed systems with <code>fnloom system list</code>, <code>fnloom system stop &lt;name&gt;</code>,
+<code>fnloom system start &lt;name&gt;</code> and <code>fnloom system uninstall &lt;name&gt;</code>, or on the same page.</p>
+<p>The config each one takes:</p>
+<ul>
+<li><p><strong>schedule</strong>: nothing (it starts with <code>fnloom start</code>). Its limits (schedules per person, firings per day, the
+shortest gap between firings) all have defaults; change them on its page in the app.</p>
+</li>
+<li><p><strong>database</strong>: one instance per database; the first install also installs <strong>widgets</strong> (charts and tables over its
+queries) when the hub doesn&#39;t have it. Installing widgets on its own works too, and says it wants database. For a
+new SQLite file in the system&#39;s data folder:</p>
+<pre><code class="language-json">{
+  &quot;label&quot;: &quot;My database&quot;,
+  &quot;connection&quot;: { &quot;kind&quot;: &quot;sqlite-new&quot;, &quot;path&quot;: &quot;my.db&quot; },
+  &quot;data&quot;: &quot;read-write&quot;,
+  &quot;schema&quot;: &quot;allowed&quot;,
+  &quot;enrich&quot;: { &quot;on&quot;: false },
+  &quot;audience&quot;: { &quot;visibility&quot;: &quot;private&quot;, &quot;with&quot;: [] }
+}
+</code></pre>
+<p><code>fnloom system install database --config database.json</code>. <code>data: &quot;read-only&quot;</code> and <code>schema: &quot;none&quot;</code> keep it from
+changing anything; <code>connection</code> can also be an existing SQLite file, Postgres or SQL Server (the system&#39;s page in
+the app has a form for every field).</p>
+</li>
+<li><p><strong>api</strong>: nothing (it starts with <code>fnloom start</code>). Services are added in the app (<strong>Admin › API services</strong>) or by
+asking the agent.</p>
+</li>
+<li><p><strong>web</strong>: a Tavily key for search, <code>fnloom system install web --config web.json</code> with <code>{ &quot;tavilyKey&quot;: &quot;tvly-…&quot; }</code>
+(an installed system doesn&#39;t see the hub&#39;s environment, so <code>TAVILY_API_KEY</code> there doesn&#39;t reach it). Without one
+it installs and reads pages; search says it needs the key until you set it on its page in the app. Installing it fetches puppeteer into its folder, and puppeteer
+downloads the Chrome it drives into its own cache (<code>~/.cache/puppeteer</code>) unless one is there already.</p>
+</li>
+<li><p><strong>google-calendar</strong>: a Google OAuth client (a &quot;Web application&quot; client) with <code>&lt;hub&gt;/connect/callback</code> among its
+redirect URIs: <code>{ &quot;clientId&quot;: &quot;…&quot;, &quot;clientSecret&quot;: &quot;…&quot;, &quot;hubUrl&quot;: &quot;http://127.0.0.1:4300&quot; }</code>. Each person then
+connects their own calendar on the Calendar page.</p>
+</li>
+<li><p><strong>embedder</strong>: an EmbeddingGemma service: <code>{ &quot;url&quot;: &quot;http://127.0.0.1:8760&quot; }</code>.</p>
+</li>
+<li><p><strong>ollama</strong>: an Ollama that already runs, <code>{ &quot;server&quot;: { &quot;mode&quot;: &quot;url&quot;, &quot;url&quot;: &quot;http://127.0.0.1:11434&quot; } }</code>, or
+one it installs and runs itself in its data folder once an admin approves:
+<code>{ &quot;server&quot;: { &quot;mode&quot;: &quot;managed&quot;, &quot;autoStart&quot;: false } }</code>.</p>
+</li>
+<li><p><strong>claude</strong>: Claude Code signed in on this computer, and the folders its sessions may start in:
+<code>{ &quot;folders&quot;: [{ &quot;path&quot;: &quot;/home/you/projects&quot;, &quot;label&quot;: &quot;projects&quot; }] }</code>.</p>
+</li>
+<li><p><strong>mcp</strong>: nothing to install by hand: add each MCP server under <strong>Admin › MCP servers</strong> (stdio, HTTP or SSE), and the
+hub runs one instance of the mcp system for it.</p>
+</li>
+</ul>
+<p>You can also install a system from a folder (<code>fnloom system install ./my-system</code>), a package zip made by
+<code>fnloom system pack</code>, or npm (<code>fnloom system install some-system@1.0.0</code>). <code>fnloom system new &lt;name&gt;</code> starts a new
+one from the template.</p>
+<h3 id="updating-and-removing">Updating and removing</h3>
+<ul>
+<li>Update: stop it (Ctrl+C), <code>npm install -g fnloom@latest</code>, start it again. Your data folder stays as it is.</li>
+<li>Remove: <code>npm uninstall -g fnloom</code>, then delete the data folder (<code>~/.harness</code>) if you don&#39;t want its data.</li>
+</ul>
+
+  </article>
+  <hr>
+  <article id="first-steps">
+<h1>First steps with fnloom</h1>
+<p>Once <code>fnloom start</code> is running and you have signed in as the admin (see <a href="#install-guide">Installing and running it</a>), these
+are the first things most people do. Every page named here is in the app&#39;s side bar; <strong>Admin</strong> pages are for admins.</p>
+<h3 id="connect-a-model">Connect a model</h3>
+<p><strong>Admin › Models › Add provider.</strong> Pick OpenRouter (one key, hundreds of models), an OpenAI-compatible server, Amazon
+Bedrock, or a local Ollama. If you set <code>OPENROUTER_API_KEY</code> before the first start, OpenRouter is already there. Each
+chat can then use a different model.</p>
+<h3 id="chat">Chat</h3>
+<p>Open <strong>Chat</strong> and ask for something in plain words. While it works, each fn it calls shows as a card with its live
+status and progress; changes that need your yes appear as approval cards, in the chat and in your <strong>Inbox</strong> (which also
+holds notifications). Every answer shows what it cost.</p>
+<h3 id="give-it-more-to-work-with">Give it more to work with</h3>
+<ul>
+<li><strong>Files:</strong> the fs system serves the folder you started <code>fnloom</code> in. Ask about its files, or have it run commands.</li>
+<li><strong>More systems:</strong> <code>fnloom system available</code> lists the premade ones; <code>fnloom system install database</code> (with widgets),
+<code>web</code>, <code>claude</code> and the rest add databases and charts, web search and reading, and Claude Code sessions. Manage
+them under <strong>Admin › Systems</strong>.</li>
+<li><strong>MCP servers:</strong> <strong>Admin › Systems › MCP servers</strong> adds one (stdio, HTTP or SSE); its tools become fns.</li>
+<li><strong>Web APIs:</strong> <strong>Admin › Systems › API services</strong>, or ask the agent to connect a service from its API description.</li>
+<li><strong>Context:</strong> the <strong>Context</strong> page holds guides, rules and memories. The right ones are picked for each message.</li>
+<li><strong>Data:</strong> the <strong>Data</strong> page lists the records the hub keeps and the charts you saved.</li>
+</ul>
+<h3 id="let-it-build-fns-and-systems">Let it build fns and systems</h3>
+<p>Ask it to make something repeatable (&quot;keep this as a fn&quot;, &quot;do this every morning&quot;): it writes a fn of the right kind
+(a code program, a saved query, an API request, a schedule) that then runs without a model. It can also write a whole
+new system; an admin reviews it under <strong>Admin › Systems</strong> before it goes live.</p>
+<h3 id="add-people-and-set-limits">Add people and set limits</h3>
+<ul>
+<li><strong>Admin › People › Add person</strong> creates an account; each person has their own chats and private memories.</li>
+<li><strong>Admin › Policies</strong> decides what each person can see, use and change.</li>
+<li><strong>Admin › Models › Budgets</strong> sets spending limits for the hub, a group, a person, a chat or a single message.</li>
+</ul>
+<h3 id="use-it-on-your-phone-2">Use it on your phone</h3>
+<p><strong>Settings › App › Use it on your phone</strong> shows a QR code and the steps to trust the hub&#39;s HTTPS certificate; then the
+app installs to the phone&#39;s home screen, with notifications.</p>
+
+  </article>
+</div>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <p class="colophon">fnloom · Apache 2.0 · <a href="https://github.com/ClickerMonkey/fnloom">GitHub</a> · <a href="../">fnloom</a> · This guide is <code>docs/install.md</code> and <code>docs/using.md</code> in the repository.</p>
+  </div>
+</footer>
+
+<script src="../js/site.js" defer></script>
+</body>
+</html>

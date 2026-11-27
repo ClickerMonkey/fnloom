@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fnloom Systems</title>
+<meta name="description" content="The fnloom system marketplace (preview): skills for your agent harness, published in public repositories, built and checked, installed with one approval.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../img/mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../css/site.css">
+<link rel="stylesheet" href="../css/stage.css">
+<link rel="stylesheet" href="../css/market.css">
+<script>try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;}catch(e){}document.documentElement.classList.add('js');</script>
+</head>
+<body class="market">
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top" data-top>
+  <div class="wrap top-in">
+    <a class="brand" href="../" aria-label="fnloom, home">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="5.5"/><path d="M16 2.5v8M16 21.5v8M2.5 16h8M21.5 16h8" /><circle cx="16" cy="2.5" r="2"/><circle cx="16" cy="29.5" r="2"/><circle cx="2.5" cy="16" r="2"/><circle cx="29.5" cy="16" r="2"/></svg>
+      <span>fnloom <span class="brand-sub">Systems</span></span>
+    </a>
+    <nav aria-label="Sections">
+      <ul>
+        <li><a href="#browse">Browse</a></li>
+        <li><a href="#install">Installing</a></li>
+        <li><a href="#publish">Publish yours</a></li>
+        <li><a href="../">About fnloom</a></li>
+      </ul>
+    </nav>
+    <button class="theme" type="button" aria-label="Switch to dark theme" data-theme-toggle>
+      <svg viewBox="0 0 24 24" aria-hidden="true" class="i-moon"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
+      <svg viewBox="0 0 24 24" aria-hidden="true" class="i-sun"><circle cx="12" cy="12" r="4.5"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3M4.6 4.6l2.1 2.1M17.3 17.3l2.1 2.1M4.6 19.4l2.1-2.1M17.3 6.7l2.1-2.1"/></svg>
+    </button>
+  </div>
+</header>
+
+<p class="preview-bar">A preview of the marketplace. The built-in systems are real; listings marked <span class="ex">example</span> are made up to show the layout.</p>
+
+<main id="main">
+<section class="m-hero" aria-labelledby="m-title">
+  <div class="wrap">
+    <p class="kicker" data-reveal>The system marketplace</p>
+    <h1 id="m-title" data-reveal style="--i:1">New skills for your assistant. <em>Checked before they’re listed.</em></h1>
+    <p class="lede" data-reveal style="--i:2"><span class="term w-system" tabindex="0" aria-describedby="d42">systems<span class="tip" role="tooltip" id="d42"><b class="tip-head">system <i>(systems)</i></b>A plug-in that connects to the hub from any computer you own. Each one brings:<span class="tip-list"><span>fns, and kinds to make more fns</span><span>context: guides and rules it can load</span><span>its own screens in the app</span><span>its own settings and keys</span></span>An admin reviews every system before it goes live.</span></span> are plug-ins that bring new <span class="term w-fn" tabindex="0" aria-describedby="d43">fns<span class="tip" role="tooltip" id="d43"><b class="tip-head">fn <i>(fns)</i></b>What fnloom acts with. Like a tool, but every fn also:<span class="tip-list"><span>has typed inputs and results</span><span>shows its status live, with steps and progress</span><span>can be cancelled, paused, resumed or undone</span><span>says whether it reads or changes things; changes can ask first</span><span>calls only the fns it declares</span><span>keeps every version, and is private or shared</span><span>comes in kinds; a saved fn runs without a model</span></span></span></span>: a database, an issue tracker, uptime checks. People publish them in their own public repositories; we build and check each one at an exact version, and your admin approves it before it goes live.</p>
+    <form class="m-search" role="search" data-reveal style="--i:3" onsubmit="return false">
+      <label class="vh" for="m-q">Search systems</label>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg>
+      <input id="m-q" type="search" placeholder="Search: issues, calendar, databases…" autocomplete="off">
+      <kbd aria-hidden="true">/</kbd>
+    </form>
+    <ul class="f-row" aria-label="Featured">
+<li class="f-card" style="--hue:205;--i:0" data-reveal>
+  <a href="#s/database"><span class="m-icon" aria-hidden="true">▦</span><span class="f-text"><strong>Databases</strong><span>Plain-words questions for SQLite, Postgres and SQL Server.</span></span></a>
+</li>
+<li class="f-card" style="--hue:20;--i:1" data-reveal>
+  <a href="#s/claude"><span class="m-icon" aria-hidden="true">✳</span><span class="f-text"><strong>Claude Code</strong><span>Run and steer Claude Code from any device.</span></span></a>
+</li>
+<li class="f-card" style="--hue:250;--i:2" data-reveal>
+  <a href="#s/mcp"><span class="m-icon" aria-hidden="true">⧉</span><span class="f-text"><strong>MCP servers</strong><span>Every MCP server, with approvals.</span></span></a>
+</li>
+<li class="f-card" style="--hue:175;--i:3" data-reveal>
+  <a href="#s/web"><span class="m-icon" aria-hidden="true">⌕</span><span class="f-text"><strong>Web research</strong><span>Search, read and crawl, with sources kept.</span></span></a>
+</li>
+<li class="f-card" style="--hue:280;--i:4" data-reveal>
+  <a href="#s/issues"><span class="m-icon" aria-hidden="true">⌁</span><span class="f-text"><strong>Issue tracker</strong><span>Find, file and update issues by asking.</span></span></a>
+</li>
+<li class="f-card" style="--hue:150;--i:5" data-reveal>
+  <a href="#s/uptime"><span class="m-icon" aria-hidden="true">◎</span><span class="f-text"><strong>Uptime checks</strong><span>Know first when something goes down.</span></span></a>
+</li>
+    </ul>
+  </div>
+</section>
+
+<section class="m-browse" id="browse" aria-labelledby="browse-title">
+  <div class="wrap">
+    <div class="m-bar">
+      <h2 id="browse-title">Browse</h2>
+      <p class="m-count" aria-live="polite" id="m-count"></p>
+    </div>
+    <div class="m-chips" role="group" aria-label="Categories">
+<button type="button" class="m-chip" aria-pressed="true" data-cat="">All <span>24</span></button>
+<button type="button" class="m-chip" aria-pressed="false" data-cat="data">Data &amp; records <span>5</span></button>
+<button type="button" class="m-chip" aria-pressed="false" data-cat="code">Code &amp; fns <span>5</span></button>
+<button type="button" class="m-chip" aria-pressed="false" data-cat="knowledge">Knowledge &amp; research <span>4</span></button>
+<button type="button" class="m-chip" aria-pressed="false" data-cat="files">Files &amp; devices <span>3</span></button>
+<button type="button" class="m-chip" aria-pressed="false" data-cat="models">Models <span>1</span></button>
+<button type="button" class="m-chip" aria-pressed="false" data-cat="time">Time &amp; schedules <span>3</span></button>
+<button type="button" class="m-chip" aria-pressed="false" data-cat="ops">Ops &amp; monitoring <span>4</span></button>
+<button type="button" class="m-chip" aria-pressed="false" data-cat="business">Business <span>5</span></button>
+    </div>
+<ul class="m-grid" id="m-grid">
+<li class="m-card" data-id="database" data-cat="data" data-q="databases ask sqlite, postgres or sql server questions in plain words; every query is saved as a fn. fnloom data ask a question change rows change a table">
+  <a href="#s/database" class="m-hit" aria-label="Databases: details"></a>
+  <span class="m-icon" style="--hue:205" aria-hidden="true">▦</span>
+  <h3>Databases</h3>
+  <p class="m-pub">fnloom</p>
+  <p class="m-sum">Ask SQLite, Postgres or SQL Server questions in plain words; every query is saved as a <span class="term w-fn" tabindex="0" aria-describedby="d4">fn<span class="tip" role="tooltip" id="d4"><b class="tip-head">fn <i>(fns)</i></b>What fnloom acts with. Like a tool, but every fn also:<span class="tip-list"><span>has typed inputs and results</span><span>shows its status live, with steps and progress</span><span>can be cancelled, paused, resumed or undone</span><span>says whether it reads or changes things; changes can ask first</span><span>calls only the fns it declares</span><span>keeps every version, and is private or shared</span><span>comes in kinds; a saved fn runs without a model</span></span></span></span>.</p>
+  <p class="m-meta"><span class="badge b-builtin">Built in</span><span class="badge b-builds">Builds cleanly</span><span class="m-cat">Data &amp; records</span></p>
+</li>
+<li class="m-card" data-id="claude" data-cat="code" data-q="claude code start, watch and steer claude code sessions on your computers; its questions arrive as approval cards. fnloom code start a session send a message answer its prompts">
+  <a href="#s/claude" class="m-hit" aria-label="Claude Code: details"></a>
+  <span class="m-icon" style="--hue:20" aria-hidden="true">✳</span>
+  <h3>Claude Code</h3>
+  <p class="m-pub">fnloom</p>
+  <p class="m-sum">Start, watch and steer Claude Code sessions on your computers; its questions arrive as approval cards.</p>
+  <p class="m-meta"><span class="badge b-builtin">Built in</span><span class="badge b-builds">Builds cleanly</span><span class="m-cat">Code &amp; fns</span></p>
+</li>
+<li class="m-card" data-id="mcp" data-cat="code" data-q="mcp servers plug in any mcp server, local or remote, with sign-in: what it offers becomes fns and prompts, with approvals. fnloom code the server's fns the server's prompts">
+  <a href="#s/mcp" class="m-hit" aria-label="MCP servers: details"></a>
+  <span class="m-icon" style="--hue:250" aria-hidden="true">⧉</span>
+  <h3>MCP servers</h3>
+  <p class="m-pub">fnloom</p>
+  <p class="m-sum">Plug in any MCP server, local or remote, with sign-in: what it offers becomes <span class="term w-fn" tabindex="0" aria-describedby="d5">fns<span class="tip" role="tooltip" id="d5"><b class="tip-head">fn <i>(fns)</i></b>What fnloom acts with. Like a tool, but every fn also:<span class="tip-list"><span>has typed inputs and results</span><span>shows its status live, with steps and progress</span><span>can be cancelled, paused, resumed or undone</span><span>says whether it reads or changes things; changes can ask first</span><span>calls only the fns it declares</span><span>keeps every version, and is private or shared</span><span>comes in kinds; a saved fn runs without a model</span></span></span></span> and prompts, with approvals.</p>
+  <p class="m-meta"><span class="badge b-builtin">Built in</span><span class="badge b-builds">Builds cleanly</span><span class="m-cat">Code &amp; fns</span></p>
+</li>
+<li class="m-card" data-id="api" data-cat="code" data-q="web apis point it at a service's api description and every request becomes a fn; each user connects their own key. fnloom code add a service call a request">
+  <a href="#s/api" class="m-hit" aria-label="Web APIs: details"></a>
+  <span class="m-icon" style="--hue:190" aria-hidden="true">⇄</span>
+  <h3>Web APIs</h3>
+  <p class="m-pub">fnloom</p>
+  <p class="m-sum">Point it at a service's API description and every request becomes a <span class="term w-fn" tabindex="0" aria-describedby="d6">fn<span class="tip" role="tooltip" id="d6"><b class="tip-head">fn <i>(fns)</i></b>What fnloom acts with. Like a tool, but every fn also:<span class="tip-list"><span>has typed inputs and results</span><span>shows its status live, with steps and progress</span><span>can be cancelled, paused, resumed or undone</span><span>says whether it reads or changes things; changes can ask first</span><span>calls only the fns it declares</span><span>keeps every version, and is private or shared</span><span>comes in kinds; a saved fn runs without a model</span></span></span></span>; each user connects their own key.</p>
+  <p class="m-meta"><span class="badge b-builtin">Built in</span><span class="badge b-builds">Builds cleanly</span><span class="m-cat">Code &amp; fns</span></p>
+</li>
+<li class="m-card" data-id="code" data-cat="code" data-q="builds its own fns writes small, checked programs over its other fns and saves them as new fns you can reuse and share. fnloom code make a fn run a saved fn">
+  <a href="#s/code" class="m-hit" aria-label="Builds its own fns: details"></a>
+  <span class="m-icon" style="--hue:120" aria-hidden="true">{ }</span>
+  <h3>Builds its own fns</h3>
+  <p class="m-pub">fnloom</p>
+  <p class="m-sum">Writes small, checked programs over its other <span class="term w-fn" tabindex="0" aria-describedby="d7">fns<span class="tip" role="tooltip" id="d7"><b class="tip-head">fn <i>(fns)</i></b>What fnloom acts with. Like a tool, but every fn also:<span class="tip-list"><span>has typed inputs and results</span><span>shows its status live, with steps and progress</span><span>can be cancelled, paused, resumed or undone</span><span>says whether it reads or changes things; changes can ask first</span><span>calls only the fns it declares</span><span>keeps every version, and is private or shared</span><span>comes in kinds; a saved fn runs without a model</span></span></span></span> and saves them as new <span class="term w-fn" tabindex="0" aria-describedby="d8">fns<span class="tip" role="tooltip" id="d8"><b class="tip-head">fn <i>(fns)</i></b>What fnloom acts with. Like a tool, but every fn also:<span class="tip-list"><span>has typed inputs and results</span><span>shows its status live, with steps and progress</span><span>can be cancelled, paused, resumed or undone</span><span>says whether it reads or changes things; changes can ask first</span><span>calls only the fns it declares</span><span>keeps every version, and is private or shared</span><span>comes in kinds; a saved fn runs without a model</span></span></span></span> you can reuse and share.</p>
+  <p class="m-meta"><span class="badge b-builtin">Built in</span><span class="badge b-builds">Builds cleanly</span><span class="m-cat">Code &amp; fns</span></p>
+</li>
+<li class="m-card" data-id="web" data-cat="knowledge" data-q="web research searches the web, reads pages as clean text, crawls a site section, and keeps every page it read. fnloom knowledge search read a page crawl a site">
+  <a href="#s/web" class="m-hit" aria-label="Web research: details"></a>
+  <span class="m-icon" style="--hue:175" aria-hidden="true">⌕</span>
+  <h3>Web research</h3>
+  <p class="m-pub">fnloom</p>
+  <p class="m-sum">Searches the web, reads pages as clean text, crawls a site section, and keeps every page it read.</p>
+  <p class="m-meta"><span class="badge b-builtin">Built in</span><span class="badge b-builds">Builds cleanly</span><span class="m-cat">Knowledge &amp; research</span></p>
+</li>
+<li class="m-card" data-id="embedder" data-cat="knowledge" data-q="search by meaning lets search, suggestions and memory recall find things by what they mean, with a local embedding model. fnloom knowledge embed text">
+  <a href="#s/embedder" class="m-hit" aria-label="Search by meaning: details"></a>
+  <span class="m-icon" style="--hue:95" aria-hidden="true">≈</span>
+  <h3>Search by meaning</h3>
+  <p class="m-pub">fnloom</p>
+  <p class="m-sum">Lets search, suggestions and memory recall find things by what they mean, with a local embedding model.</p>
+  <p class="m-meta"><span class="badge b-builtin">Built in</span><span class="badge b-builds">Builds cleanly</span><span class="m-cat">Knowledge &amp; research</span></p>
+</li>
+<li class="m-card" data-id="fs" data-cat="files" data-q="files and folders reads, searches, writes and edits files in the folders you choose, on any computer, with undo for every write. fnloom files read and search write and edit run a command">
+  <a href="#s/fs" class="m-hit" aria-label="Files and folders: details"></a>
+  <span class="m-icon" style="--hue:215" aria-hidden="true">▢</span>
+  <h3>Files and folders</h3>
+  <p class="m-pub">fnloom</p>
+  <p class="m-sum">Reads, searches, writes and edits files in the folders you choose, on any computer, with undo for every write.</p>
+  <p class="m-meta"><span class="badge b-builtin">Built in</span><span class="badge b-builds">Builds cleanly</span><span class="m-cat">Files &amp; devices</span></p>
+</li>
+<li class="m-card" data-id="input" data-cat="data" data-q="forms asks with a proper form in the chat (text, choices, numbers, dates) and can keep the form for next time. fnloom data ask with a form save a form">
+  <a href="#s/input" class="m-hit" aria-label="Forms: details"></a>
+  <span class="m-icon" style="--hue:280" aria-hidden="true">☰</span>
+  <h3>Forms</h3>
+  <p class="m-pub">fnloom</p>
+  <p class="m-sum">Asks with a proper form in the chat (text, choices, numbers, dates) and can keep the form for next time.</p>
+  <p class="m-meta"><span class="badge b-builtin">Built in</span><span class="badge b-builds">Builds cleanly</span><span class="m-cat">Data &amp; records</span></p>
+</li>
+<li class="m-card" data-id="widgets" data-cat="data" data-q="charts and widgets turns any result into a live chart or table with filters, proposed with a preview; press save to keep it. fnloom data make a chart save a chart">
+  <a href="#s/widgets" class="m-hit" aria-label="Charts and widgets: details"></a>
+  <span class="m-icon" style="--hue:35" aria-hidden="true">◔</span>
+  <h3>Charts and widgets</h3>
+  <p class="m-pub">fnloom</p>
+  <p class="m-sum">Turns any result into a live chart or table with filters, proposed with a preview; press Save to keep it.</p>
+  <p class="m-meta"><span class="badge b-builtin">Built in</span><span class="badge b-builds">Builds cleanly</span><span class="m-cat">Data &amp; records</span></p>
+</li>
+<li class="m-card" data-id="schedule" data-cat="time" data-q="schedules runs any saved fn later, once or repeating, shows it all on a calendar, and catches up runs it missed. fnloom time add a schedule pause or skip calendar">
+  <a href="#s/schedule" class="m-hit" aria-label="Schedules: details"></a>
+  <span class="m-icon" style="--hue:60" aria-hidden="true">◷</span>
+  <h3>Schedules</h3>
+  <p class="m-pub">fnloom</p>
+  <p class="m-sum">Runs any saved <span class="term w-fn" tabindex="0" aria-describedby="d9">fn<span class="tip" role="tooltip" id="d9"><b class="tip-head">fn <i>(fns)</i></b>What fnloom acts with. Like a tool, but every fn also:<span class="tip-list"><span>has typed inputs and results</span><span>shows its status live, with steps and progress</span><span>can be cancelled, paused, resumed or undone</span><span>says whether it reads or changes things; changes can ask first</span><span>calls only the fns it declares</span><span>keeps every version, and is private or shared</span><span>comes in kinds; a saved fn runs without a model</span></span></span></span> later, once or repeating, shows it all on a calendar, and catches up runs it missed.</p>
+  <p class="m-meta"><span class="badge b-builtin">Built in</span><span class="badge b-builds">Builds cleanly</span><span class="m-cat">Time &amp; schedules</span></p>
+</li>
+<li class="m-card" data-id="google-calendar" data-cat="time" data-q="google calendar each person connects their own calendar; it sees events and, as each person allows, adds and changes them. fnloom time see events add or change events">
+  <a href="#s/google-calendar" class="m-hit" aria-label="Google Calendar: details"></a>
+  <span class="m-icon" style="--hue:0" aria-hidden="true">▣</span>
+  <h3>Google Calendar</h3>
+  <p class="m-pub">fnloom</p>
+  <p class="m-sum">Each person connects their own calendar; it sees events and, as each person allows, adds and changes them.</p>
+  <p class="m-meta"><span class="badge b-builtin">Built in</span><span class="badge b-builds">Builds cleanly</span><span class="m-cat">Time &amp; schedules</span></p>
+</li>
+<li class="m-card" data-id="ollama" data-cat="models" data-q="local models installs and runs ollama for you, pulls the models an admin picks, and offers them in the model picker. fnloom models install and start pull a model">
+  <a href="#s/ollama" class="m-hit" aria-label="Local models: details"></a>
+  <span class="m-icon" style="--hue:140" aria-hidden="true">◍</span>
+  <h3>Local models</h3>
+  <p class="m-pub">fnloom</p>
+  <p class="m-sum">Installs and runs Ollama for you, pulls the models an admin picks, and offers them in the model picker.</p>
+  <p class="m-meta"><span class="badge b-builtin">Built in</span><span class="badge b-builds">Builds cleanly</span><span class="m-cat">Models</span></p>
+</li>
+<li class="m-card" data-id="issues" data-cat="code business" data-q="issue tracker find, file and update issues in your tracker from any chat; new issues wait for your ok. example-publisher code business search issues file an issue comment or close">
+  <a href="#s/issues" class="m-hit" aria-label="Issue tracker: details"></a>
+  <span class="m-icon" style="--hue:280" aria-hidden="true">⌁</span>
+  <h3>Issue tracker</h3>
+  <p class="m-pub">example-publisher <span class="ex">example</span></p>
+  <p class="m-sum">Find, file and update issues in your tracker from any chat; new issues wait for your OK.</p>
+  <p class="m-meta"><span class="badge b-builds">Builds cleanly</span><span class="badge b-verified">Verified publisher</span><span class="m-cat">Code &amp; fns</span></p>
+</li>
+<li class="m-card" data-id="uptime" data-cat="ops time" data-q="uptime checks checks your sites and endpoints on a schedule and tells the right user when one goes down. example-publisher ops time check now add a check">
+  <a href="#s/uptime" class="m-hit" aria-label="Uptime checks: details"></a>
+  <span class="m-icon" style="--hue:150" aria-hidden="true">◎</span>
+  <h3>Uptime checks</h3>
+  <p class="m-pub">example-publisher <span class="ex">example</span></p>
+  <p class="m-sum">Checks your sites and endpoints on a schedule and tells the right user when one goes down.</p>
+  <p class="m-meta"><span class="badge b-builds">Builds cleanly</span><span class="m-cat">Ops &amp; monitoring</span></p>
+</li>
+<li class="m-card" data-id="team-chat" data-cat="business" data-q="team chat posts updates and reports to your team chat channels, and reads a channel when you ask. example-publisher business read a channel post a message">
+  <a href="#s/team-chat" class="m-hit" aria-label="Team chat: details"></a>
+  <span class="m-icon" style="--hue:35" aria-hidden="true">✉</span>
+  <h3>Team chat</h3>
+  <p class="m-pub">example-publisher <span class="ex">example</span></p>
+  <p class="m-sum">Posts updates and reports to your team chat channels, and reads a channel when you ask.</p>
+  <p class="m-meta"><span class="badge b-builds">Builds cleanly</span><span class="m-cat">Business</span></p>
+</li>
+<li class="m-card" data-id="weather" data-cat="knowledge" data-q="weather forecasts and warnings for any place, from a public weather service. example-publisher knowledge forecast">
+  <a href="#s/weather" class="m-hit" aria-label="Weather: details"></a>
+  <span class="m-icon" style="--hue:45" aria-hidden="true">☀</span>
+  <h3>Weather</h3>
+  <p class="m-pub">example-publisher <span class="ex">example</span></p>
+  <p class="m-sum">Forecasts and warnings for any place, from a public weather service.</p>
+  <p class="m-meta"><span class="badge b-builds">Builds cleanly</span><span class="m-cat">Knowledge &amp; research</span></p>
+</li>
+<li class="m-card" data-id="invoices" data-cat="business data" data-q="invoices drafts, sends and tracks invoices, and reminds you a few days before one is overdue. example-publisher business data what’s outstanding send an invoice">
+  <a href="#s/invoices" class="m-hit" aria-label="Invoices: details"></a>
+  <span class="m-icon" style="--hue:120" aria-hidden="true">$</span>
+  <h3>Invoices</h3>
+  <p class="m-pub">example-publisher <span class="ex">example</span></p>
+  <p class="m-sum">Drafts, sends and tracks invoices, and reminds you a few days before one is overdue.</p>
+  <p class="m-meta"><span class="badge b-builds">Builds cleanly</span><span class="m-cat">Business</span></p>
+</li>
+<li class="m-card" data-id="logs" data-cat="ops" data-q="log search searches your services’ logs in plain words and charts errors over time. example-publisher ops search logs error chart">
+  <a href="#s/logs" class="m-hit" aria-label="Log search: details"></a>
+  <span class="m-icon" style="--hue:200" aria-hidden="true">≡</span>
+  <h3>Log search</h3>
+  <p class="m-pub">example-publisher <span class="ex">example</span></p>
+  <p class="m-sum">Searches your services’ logs in plain words and charts errors over time.</p>
+  <p class="m-meta"><span class="badge b-builds">Builds cleanly</span><span class="m-cat">Ops &amp; monitoring</span></p>
+</li>
+<li class="m-card" data-id="cloud-costs" data-cat="ops business" data-q="cloud costs pulls your cloud bill by service and project, and flags anything that jumped this week. example-publisher ops business costs by service weekly change">
+  <a href="#s/cloud-costs" class="m-hit" aria-label="Cloud costs: details"></a>
+  <span class="m-icon" style="--hue:220" aria-hidden="true">☁</span>
+  <h3>Cloud costs</h3>
+  <p class="m-pub">example-publisher <span class="ex">example</span></p>
+  <p class="m-sum">Pulls your cloud bill by service and project, and flags anything that jumped this week.</p>
+  <p class="m-meta"><span class="badge b-builds">Builds cleanly</span><span class="m-cat">Ops &amp; monitoring</span></p>
+</li>
+<li class="m-card" data-id="crm" data-cat="business data" data-q="contacts and deals keeps contacts, companies and deals, with reminders to follow up. example-publisher business data find a contact log a deal">
+  <a href="#s/crm" class="m-hit" aria-label="Contacts and deals: details"></a>
+  <span class="m-icon" style="--hue:330" aria-hidden="true">◈</span>
+  <h3>Contacts and deals</h3>
+  <p class="m-pub">example-publisher <span class="ex">example</span></p>
+  <p class="m-sum">Keeps contacts, companies and deals, with reminders to follow up.</p>
+  <p class="m-meta"><span class="badge b-builds">Builds cleanly</span><span class="badge b-verified">Verified publisher</span><span class="m-cat">Business</span></p>
+</li>
+<li class="m-card" data-id="docs-search" data-cat="knowledge files" data-q="docs search reads a folder of pdfs and documents, and answers questions with the page it found it on. example-publisher knowledge files ask the docs">
+  <a href="#s/docs-search" class="m-hit" aria-label="Docs search: details"></a>
+  <span class="m-icon" style="--hue:75" aria-hidden="true">▤</span>
+  <h3>Docs search</h3>
+  <p class="m-pub">example-publisher <span class="ex">example</span></p>
+  <p class="m-sum">Reads a folder of PDFs and documents, and answers questions with the page it found it on.</p>
+  <p class="m-meta"><span class="badge b-builds">Builds cleanly</span><span class="m-cat">Knowledge &amp; research</span></p>
+</li>
+<li class="m-card" data-id="images" data-cat="files" data-q="image library finds images by what’s in them, and tags and sorts them by asking. example-publisher files find images tag and sort">
+  <a href="#s/images" class="m-hit" aria-label="Image library: details"></a>
+  <span class="m-icon" style="--hue:300" aria-hidden="true">◩</span>
+  <h3>Image library</h3>
+  <p class="m-pub">example-publisher <span class="ex">example</span></p>
+  <p class="m-sum">Finds images by what’s in them, and tags and sorts them by asking.</p>
+  <p class="m-meta"><span class="badge b-builds">Builds cleanly</span><span class="m-cat">Files &amp; devices</span></p>
+</li>
+<li class="m-card" data-id="dns" data-cat="ops" data-q="dns records lists and changes dns records, with the exact record change shown before you approve. example-publisher ops list records change a record">
+  <a href="#s/dns" class="m-hit" aria-label="DNS records: details"></a>
+  <span class="m-icon" style="--hue:190" aria-hidden="true">⌬</span>
+  <h3>DNS records</h3>
+  <p class="m-pub">example-publisher <span class="ex">example</span></p>
+  <p class="m-sum">Lists and changes DNS records, with the exact record change shown before you approve.</p>
+  <p class="m-meta"><span class="badge b-builds">Builds cleanly</span><span class="m-cat">Ops &amp; monitoring</span></p>
+</li>
+</ul>
+    <p class="m-empty" id="m-empty" hidden>Nothing matches yet. Ask fnloom to build it: it can write systems too.</p>
+  </div>
+</section>
+
+<section class="band m-how" id="install" aria-labelledby="install-title">
+  <div class="wrap">
+    <p class="kicker" data-reveal>Installing</p>
+    <h2 id="install-title" data-reveal>One approval card. Nothing hidden.</h2>
+    <ol class="m-steps">
+      <li data-reveal><b>Pick a system</b><p>Each listing shows its <span class="term w-fn" tabindex="0" aria-describedby="d44">fns<span class="tip" role="tooltip" id="d44"><b class="tip-head">fn <i>(fns)</i></b>What fnloom acts with. Like a tool, but every fn also:<span class="tip-list"><span>has typed inputs and results</span><span>shows its status live, with steps and progress</span><span>can be cancelled, paused, resumed or undone</span><span>says whether it reads or changes things; changes can ask first</span><span>calls only the fns it declares</span><span>keeps every version, and is private or shared</span><span>comes in kinds; a saved fn runs without a model</span></span></span></span>: what each reads, what it changes, which ones ask first, and what the system needs from you.</p></li>
+      <li data-reveal style="--i:1"><b>Your admin approves</b><p>Your hub builds that exact version, checks it, and shows the admin every <span class="term w-fn" tabindex="0" aria-describedby="d45">fn<span class="tip" role="tooltip" id="d45"><b class="tip-head">fn <i>(fns)</i></b>What fnloom acts with. Like a tool, but every fn also:<span class="tip-list"><span>has typed inputs and results</span><span>shows its status live, with steps and progress</span><span>can be cancelled, paused, resumed or undone</span><span>says whether it reads or changes things; changes can ask first</span><span>calls only the fns it declares</span><span>keeps every version, and is private or shared</span><span>comes in kinds; a saved fn runs without a model</span></span></span></span> and <span class="term w-kind" tabindex="0" aria-describedby="d46">kind<span class="tip" role="tooltip" id="d46"><b class="tip-head">kind <i>(kinds)</i></b>A recipe for making fns: code programs, saved database queries, API requests, schedules, forms and charts are kinds. Any system can add a kind; it works out a new fn’s inputs, permissions and progress, so making one takes only a name and a description.</span></span> it adds before anything runs.</p></li>
+      <li data-reveal style="--i:2"><b>It runs on your computer</b><p>The system runs on a machine you choose, with only the access it declared, and anything that changes things still asks.</p></li>
+    </ol>
+  </div>
+</section>
+
+<section class="m-publish" id="publish" aria-labelledby="publish-title">
+  <div class="wrap pub-in">
+    <div>
+      <p class="kicker" data-reveal>Publish yours</p>
+      <h2 id="publish-title" data-reveal>Put it in a public repository. That’s it.</h2>
+      <p class="section-lede" data-reveal>There’s nothing to upload. Put your system in a public repository, under <code>systems/&lt;name&gt;/</code> or at its root, add the repository topic <code>fnloom-system</code>, and the marketplace finds it, builds it, checks it and lists it at that exact version. Push a new tag to publish an update.</p>
+      <p class="section-lede" data-reveal>Don’t want to write code? Ask fnloom to build the system with you; it writes the folder, checks it and installs it on your own hub first.</p>
+    </div>
+    <pre class="tree" data-reveal aria-label="An example repository layout"><code><b>your-repo/</b>
+└─ systems/
+   └─ <b>uptime-checks/</b>
+      ├─ system.json      <i>name, version, what it does</i>
+      ├─ server/main.ts   <i>its fns</i>
+      ├─ client/          <i>optional: its own screens</i>
+      └─ marketplace/     <i>optional: icon, screenshots</i></code></pre>
+  </div>
+</section>
+</main>
+
+<div class="m-detail" id="m-detail" hidden>
+  <div class="m-scrim" data-close></div>
+  <article class="m-sheet" role="dialog" aria-modal="true" aria-labelledby="d-title" tabindex="-1">
+    <button class="m-x" type="button" data-close aria-label="Close">×</button>
+    <div id="d-body"></div>
+  </article>
+</div>
+
+<footer class="foot">
+  <div class="wrap">
+    <p class="colophon">fnloom Systems · a preview with example listings · <a href="../">fnloom</a></p>
+  </div>
+</footer>
+
+<template id="t-fns"><span class="term w-fn" tabindex="0" aria-describedby="d10">fns<span class="tip" role="tooltip" id="d10"><b class="tip-head">fn <i>(fns)</i></b>What fnloom acts with. Like a tool, but every fn also:<span class="tip-list"><span>has typed inputs and results</span><span>shows its status live, with steps and progress</span><span>can be cancelled, paused, resumed or undone</span><span>says whether it reads or changes things; changes can ask first</span><span>calls only the fns it declares</span><span>keeps every version, and is private or shared</span><span>comes in kinds; a saved fn runs without a model</span></span></span></span></template><script type="application/json" id="m-data">{"note":"Mock data for the marketplace preview (docs/plans/marketplace-2026-11-26.md, phase M0). Built-in listings describe the real first-party systems (docs/site/research/systems-out-of-box.md); every listing with \"example\": true is made up to show the layout and says so on the page.","badges":{"builtin":"Built in","verified":"Verified publisher","builds":"Builds cleanly"},"categories":[{"id":"data","name":"Data & records"},{"id":"code","name":"Code & fns"},{"id":"knowledge","name":"Knowledge & research"},{"id":"files","name":"Files & devices"},{"id":"models","name":"Models"},{"id":"time","name":"Time & schedules"},{"id":"ops","name":"Ops & monitoring"},{"id":"business","name":"Business"}],"featured":["database","claude","mcp","web","issues","uptime"],"systems":[{"id":"database","title":"Databases","publisher":"fnloom","glyph":"▦","hue":205,"categories":["data"],"badges":["builtin","builds"],"version":"0.1.0","summary":"Ask SQLite, Postgres or SQL Server questions in plain words; every query is saved as a fn.","pitch":"Plain-words questions for SQLite, Postgres and SQL Server.","fns":[{"label":"Ask a question","mode":"read"},{"label":"Change rows","mode":"write","asks":true},{"label":"Change a table","mode":"write","asks":true}],"needs":["A database connection, added by an admin"]},{"id":"claude","title":"Claude Code","publisher":"fnloom","glyph":"✳","hue":20,"categories":["code"],"badges":["builtin","builds"],"version":"0.1.0","summary":"Start, watch and steer Claude Code sessions on your computers; its questions arrive as approval cards.","pitch":"Run and steer Claude Code from any device.","fns":[{"label":"Start a session","mode":"write","asks":true},{"label":"Send a message","mode":"write"},{"label":"Answer its prompts","mode":"write","asks":true}],"needs":["Claude Code signed in on that computer"]},{"id":"mcp","title":"MCP servers","publisher":"fnloom","glyph":"⧉","hue":250,"categories":["code"],"badges":["builtin","builds"],"version":"0.1.0","summary":"Plug in any MCP server, local or remote, with sign-in: what it offers becomes fns and prompts, with approvals.","pitch":"Every MCP server, with approvals.","fns":[{"label":"The server's fns","mode":"write","asks":true},{"label":"The server's prompts","mode":"read"}],"needs":["An admin adds each server"]},{"id":"api","title":"Web APIs","publisher":"fnloom","glyph":"⇄","hue":190,"categories":["code"],"badges":["builtin","builds"],"version":"0.1.0","summary":"Point it at a service's API description and every request becomes a fn; each user connects their own key.","fns":[{"label":"Add a service","mode":"write","asks":true},{"label":"Call a request","mode":"write","asks":true}],"needs":["The service's API description (OpenAPI)"]},{"id":"code","title":"Builds its own fns","publisher":"fnloom","glyph":"{ }","hue":120,"categories":["code"],"badges":["builtin","builds"],"version":"0.1.0","summary":"Writes small, checked programs over its other fns and saves them as new fns you can reuse and share.","fns":[{"label":"Make a fn","mode":"write"},{"label":"Run a saved fn","mode":"read"}],"needs":[]},{"id":"web","title":"Web research","publisher":"fnloom","glyph":"⌕","hue":175,"categories":["knowledge"],"badges":["builtin","builds"],"version":"0.1.0","summary":"Searches the web, reads pages as clean text, crawls a site section, and keeps every page it read.","pitch":"Search, read and crawl, with sources kept.","fns":[{"label":"Search","mode":"read"},{"label":"Read a page","mode":"read"},{"label":"Crawl a site","mode":"read"}],"needs":["A search service key"]},{"id":"embedder","title":"Search by meaning","publisher":"fnloom","glyph":"≈","hue":95,"categories":["knowledge"],"badges":["builtin","builds"],"version":"0.1.0","summary":"Lets search, suggestions and memory recall find things by what they mean, with a local embedding model.","fns":[{"label":"Embed text","mode":"read"}],"needs":["The local embedding service"]},{"id":"fs","title":"Files and folders","publisher":"fnloom","glyph":"▢","hue":215,"categories":["files"],"badges":["builtin","builds"],"version":"0.1.0","summary":"Reads, searches, writes and edits files in the folders you choose, on any computer, with undo for every write.","fns":[{"label":"Read and search","mode":"read"},{"label":"Write and edit","mode":"write","asks":true},{"label":"Run a command","mode":"write","asks":true}],"needs":["The folders it may use"]},{"id":"input","title":"Forms","publisher":"fnloom","glyph":"☰","hue":280,"categories":["data"],"badges":["builtin","builds"],"version":"0.1.0","summary":"Asks with a proper form in the chat (text, choices, numbers, dates) and can keep the form for next time.","fns":[{"label":"Ask with a form","mode":"read"},{"label":"Save a form","mode":"write"}],"needs":[]},{"id":"widgets","title":"Charts and widgets","publisher":"fnloom","glyph":"◔","hue":35,"categories":["data"],"badges":["builtin","builds"],"version":"0.1.0","summary":"Turns any result into a live chart or table with filters, proposed with a preview; press Save to keep it.","fns":[{"label":"Make a chart","mode":"read"},{"label":"Save a chart","mode":"write"}],"needs":[]},{"id":"schedule","title":"Schedules","publisher":"fnloom","glyph":"◷","hue":60,"categories":["time"],"badges":["builtin","builds"],"version":"0.1.0","summary":"Runs any saved fn later, once or repeating, shows it all on a calendar, and catches up runs it missed.","fns":[{"label":"Add a schedule","mode":"write","asks":true},{"label":"Pause or skip","mode":"write"},{"label":"Calendar","mode":"read"}],"needs":[]},{"id":"google-calendar","title":"Google Calendar","publisher":"fnloom","glyph":"▣","hue":0,"categories":["time"],"badges":["builtin","builds"],"version":"0.1.0","summary":"Each person connects their own calendar; it sees events and, as each person allows, adds and changes them.","fns":[{"label":"See events","mode":"read"},{"label":"Add or change events","mode":"write","asks":true}],"needs":["A Google sign-in for each person"]},{"id":"ollama","title":"Local models","publisher":"fnloom","glyph":"◍","hue":140,"categories":["models"],"badges":["builtin","builds"],"version":"0.1.0","summary":"Installs and runs Ollama for you, pulls the models an admin picks, and offers them in the model picker.","fns":[{"label":"Install and start","mode":"write","asks":true},{"label":"Pull a model","mode":"write","asks":true}],"needs":[]},{"publisher":"example-publisher","example":true,"badges":["builds","verified"],"id":"issues","title":"Issue tracker","glyph":"⌁","hue":280,"categories":["code","business"],"version":"0.4.2","summary":"Find, file and update issues in your tracker from any chat; new issues wait for your OK.","pitch":"Find, file and update issues by asking.","fns":[{"label":"Search issues","mode":"read"},{"label":"File an issue","mode":"write","asks":true},{"label":"Comment or close","mode":"write","asks":true}],"needs":["A token for your tracker"]},{"publisher":"example-publisher","example":true,"badges":["builds"],"id":"uptime","title":"Uptime checks","glyph":"◎","hue":150,"categories":["ops","time"],"version":"1.1.0","summary":"Checks your sites and endpoints on a schedule and tells the right user when one goes down.","pitch":"Know first when something goes down.","fns":[{"label":"Check now","mode":"read"},{"label":"Add a check","mode":"write"}],"needs":[]},{"publisher":"example-publisher","example":true,"badges":["builds"],"id":"team-chat","title":"Team chat","glyph":"✉","hue":35,"categories":["business"],"version":"0.3.1","summary":"Posts updates and reports to your team chat channels, and reads a channel when you ask.","fns":[{"label":"Read a channel","mode":"read"},{"label":"Post a message","mode":"write","asks":true}],"needs":["A bot token"]},{"publisher":"example-publisher","example":true,"badges":["builds"],"id":"weather","title":"Weather","glyph":"☀","hue":45,"categories":["knowledge"],"version":"0.2.0","summary":"Forecasts and warnings for any place, from a public weather service.","fns":[{"label":"Forecast","mode":"read"}],"needs":[]},{"publisher":"example-publisher","example":true,"badges":["builds"],"id":"invoices","title":"Invoices","glyph":"$","hue":120,"categories":["business","data"],"version":"0.6.1","summary":"Drafts, sends and tracks invoices, and reminds you a few days before one is overdue.","fns":[{"label":"What’s outstanding","mode":"read"},{"label":"Send an invoice","mode":"write","asks":true}],"needs":[]},{"publisher":"example-publisher","example":true,"badges":["builds"],"id":"logs","title":"Log search","glyph":"≡","hue":200,"categories":["ops"],"version":"0.2.4","summary":"Searches your services’ logs in plain words and charts errors over time.","fns":[{"label":"Search logs","mode":"read"},{"label":"Error chart","mode":"read"}],"needs":["Read access to your logs"]},{"publisher":"example-publisher","example":true,"badges":["builds"],"id":"cloud-costs","title":"Cloud costs","glyph":"☁","hue":220,"categories":["ops","business"],"version":"0.5.0","summary":"Pulls your cloud bill by service and project, and flags anything that jumped this week.","fns":[{"label":"Costs by service","mode":"read"},{"label":"Weekly change","mode":"read"}],"needs":["A read-only billing key"]},{"publisher":"example-publisher","example":true,"badges":["builds","verified"],"id":"crm","title":"Contacts and deals","glyph":"◈","hue":330,"categories":["business","data"],"version":"0.3.0","summary":"Keeps contacts, companies and deals, with reminders to follow up.","fns":[{"label":"Find a contact","mode":"read"},{"label":"Log a deal","mode":"write"}],"needs":[]},{"publisher":"example-publisher","example":true,"badges":["builds"],"id":"docs-search","title":"Docs search","glyph":"▤","hue":75,"categories":["knowledge","files"],"version":"0.1.0","summary":"Reads a folder of PDFs and documents, and answers questions with the page it found it on.","fns":[{"label":"Ask the docs","mode":"read"}],"needs":["A folder of documents"]},{"publisher":"example-publisher","example":true,"badges":["builds"],"id":"images","title":"Image library","glyph":"◩","hue":300,"categories":["files"],"version":"0.5.0","summary":"Finds images by what’s in them, and tags and sorts them by asking.","fns":[{"label":"Find images","mode":"read"},{"label":"Tag and sort","mode":"write","asks":true}],"needs":["The folders your images are in"]},{"publisher":"example-publisher","example":true,"badges":["builds"],"id":"dns","title":"DNS records","glyph":"⌬","hue":190,"categories":["ops"],"version":"0.2.2","summary":"Lists and changes DNS records, with the exact record change shown before you approve.","fns":[{"label":"List records","mode":"read"},{"label":"Change a record","mode":"write","asks":true}],"needs":["A DNS provider token"]}]}</script>
+<script src="../js/site.js" defer></script>
+<script src="../js/market.js" defer></script>
+</body>
+</html>
