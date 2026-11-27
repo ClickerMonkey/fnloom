@@ -150,8 +150,10 @@ The config each one takes:
   the app has a form for every field).
 - **api**: nothing (it starts with `fnloom start`). Services are added in the app (**Admin › API services**) or by
   asking the agent.
-- **web**: a Tavily key for search, `fnloom system install web --config web.json` with `{ "tavilyKey": "tvly-…" }`;
-  without one it installs and waits for the key on its page in the app.
+- **web**: a Tavily key for search, `fnloom system install web --config web.json` with `{ "tavilyKey": "tvly-…" }`
+  (an installed system doesn't see the hub's environment, so `TAVILY_API_KEY` there doesn't reach it). Without one
+  it installs and reads pages; search says it needs the key until you set it on its page in the app. Installing it fetches puppeteer into its folder, and puppeteer
+  downloads the Chrome it drives into its own cache (`~/.cache/puppeteer`) unless one is there already.
 - **google-calendar**: a Google OAuth client (a "Web application" client) with `<hub>/connect/callback` among its
   redirect URIs: `{ "clientId": "…", "clientSecret": "…", "hubUrl": "http://127.0.0.1:4300" }`. Each person then
   connects their own calendar on the Calendar page.
